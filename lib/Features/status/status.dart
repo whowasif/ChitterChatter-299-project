@@ -32,14 +32,15 @@ class _StatusTabState extends State<StatusTab> {
       final currentTime = DateTime.now();
       List<Map<String, dynamic>> statuses = [];
 
+      // Fetch current user's stories
       final currentUserDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
           .get();
-
       final currentUserName = currentUserDoc.data()?['name'] ?? 'Unknown User';
       final currentUserProfilePic =
           currentUserDoc.data()?['profilePicture'] ?? '';
+
       final userStories = await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
@@ -54,38 +55,28 @@ class _StatusTabState extends State<StatusTab> {
         currentUserProfilePic,
       ));
 
-      final chatList = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('chatList')
-          .get();
+      // Fetch all users and their stories (replace this later with a friend-based filter)
+      final allUsers =
+          await FirebaseFirestore.instance.collection('users').get();
+      for (var userDoc in allUsers.docs) {
+        if (userDoc.id == userId) continue; // Skip the current user
 
-      for (var chatDoc in chatList.docs) {
-        final chatUserId = chatDoc.id;
-        final chatUserDoc = await FirebaseFirestore.instance
+        final chatUserName = userDoc.data()?['name'] ?? 'Unknown User';
+        final chatUserProfilePic = userDoc.data()?['profilePicture'] ?? '';
+
+        final chatUserStories = await FirebaseFirestore.instance
             .collection('users')
-            .doc(chatUserId)
+            .doc(userDoc.id)
+            .collection('stories')
+            .orderBy('date', descending: true)
             .get();
 
-        if (chatUserDoc.exists) {
-          final chatUserName =
-              chatUserDoc.data()?['name'] ?? 'Unknown User';
-          final chatUserProfilePic =
-              chatUserDoc.data()?['profilePicture'] ?? '';
-          final chatUserStories = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(chatUserId)
-              .collection('stories')
-              .orderBy('date', descending: true)
-              .get();
-
-          statuses.addAll(_extractRecentStatuses(
-            chatUserStories.docs,
-            chatUserName,
-            currentTime,
-            chatUserProfilePic,
-          ));
-        }
+        statuses.addAll(_extractRecentStatuses(
+          chatUserStories.docs,
+          chatUserName,
+          currentTime,
+          chatUserProfilePic,
+        ));
       }
 
       setState(() {
@@ -104,9 +95,7 @@ class _StatusTabState extends State<StatusTab> {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
 
-    if (_statusController.text
-        .trim()
-        .isEmpty) {
+    if (_statusController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Status cannot be empty')),
       );
@@ -143,23 +132,21 @@ class _StatusTabState extends State<StatusTab> {
       String profilePicture) {
     return docs
         .map((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      final timestamp = data['date'] as Timestamp?;
-      final statusDate = timestamp?.toDate();
+          final data = doc.data() as Map<String, dynamic>;
+          final timestamp = data['date'] as Timestamp?;
+          final statusDate = timestamp?.toDate();
 
-      if (statusDate != null &&
-          currentTime
-              .difference(statusDate)
-              .inHours < 24) {
-        return {
-          'name': userName,
-          'status': data['status'] ?? 'No Status',
-          'date': statusDate,
-          'profilePicture': profilePicture,
-        };
-      }
-      return null;
-    })
+          if (statusDate != null &&
+              currentTime.difference(statusDate).inHours < 24) {
+            return {
+              'name': userName,
+              'status': data['status'] ?? 'No Status',
+              'date': statusDate,
+              'profilePicture': profilePicture,
+            };
+          }
+          return null;
+        })
         .where((status) => status != null)
         .cast<Map<String, dynamic>>()
         .toList();
@@ -223,7 +210,9 @@ class _StatusTabState extends State<StatusTab> {
                         children: [
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
-                              foregroundColor: Colors.white, backgroundColor: tabColor,// Set the button color to green
+                              foregroundColor: Colors.white,
+                              backgroundColor:
+                                  tabColor, // Set the button color to green
                             ),
                             onPressed: _createStatus,
                             child: const Text('Share'),
@@ -237,50 +226,51 @@ class _StatusTabState extends State<StatusTab> {
               // Status List Section
               _loading
                   ? const Center(
-                child: CircularProgressIndicator(),
-              )
+                      child: CircularProgressIndicator(),
+                    )
                   : recentStatus.isNotEmpty
-                  ? ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: recentStatus.length,
-                itemBuilder: (context, index) {
-                  final status = recentStatus[index];
-                  return ListTile(
-                    leading: _buildProfileAvatar(status['profilePicture']),
-                    title: Text(
-                      status['name'] ?? 'Unknown User',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          status['status'] ?? 'No Status',
-                          style: const TextStyle(fontSize: 14),
+                      ? ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: recentStatus.length,
+                          itemBuilder: (context, index) {
+                            final status = recentStatus[index];
+                            return ListTile(
+                              leading:
+                                  _buildProfileAvatar(status['profilePicture']),
+                              title: Text(
+                                status['name'] ?? 'Unknown User',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    status['status'] ?? 'No Status',
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    status['date'] != null
+                                        ? "Posted on: ${_formatDate(status['date'])}"
+                                        : "Date not available",
+                                    style: const TextStyle(
+                                        fontSize: 12, color: Colors.grey),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        )
+                      : const Center(
+                          child: Text(
+                            "No status available",
+                            style: TextStyle(fontSize: 16),
+                          ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          status['date'] != null
-                              ? "Posted on: ${_formatDate(status['date'])}"
-                              : "Date not available",
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.grey),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              )
-                  : const Center(
-                child: Text(
-                  "No status available",
-                  style: TextStyle(fontSize: 16),
-                ),
-              ),
             ],
           ),
         ),

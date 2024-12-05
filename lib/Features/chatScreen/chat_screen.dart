@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'dart:convert';
 import 'package:chitter_chatter/Features/chatScreen/message_search.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
@@ -252,13 +253,29 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
 
   Future<void> sendPhoto() async {
     try {
-      // Pick an image from the gallery
-      final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
-      if (image == null) return;
+      Uint8List? imageBytes;
 
-      // Read the image file
-      final File file = File(image.path);
-      final Uint8List imageBytes = await file.readAsBytes();
+      if (kIsWeb) {
+        // Use FilePicker for web
+        final result = await FilePicker.platform.pickFiles(
+          type: FileType.image,
+          allowMultiple: false,
+        );
+
+        if (result == null || result.files.isEmpty) return;
+        imageBytes = result.files.single.bytes; // Get the bytes directly
+      } else {
+        // Use ImagePicker for mobile
+        final XFile? pickedFile =
+            await ImagePicker().pickImage(source: ImageSource.gallery);
+        if (pickedFile == null) return;
+
+        // Read the file
+        final File file = File(pickedFile.path);
+        imageBytes = await file.readAsBytes(); // Read file as bytes
+      }
+
+      if (imageBytes == null) return;
 
       // Encode the image to base64
       final String base64Image = base64Encode(imageBytes);
